@@ -23,21 +23,18 @@ int mosquitto_plugin_cleanup(void *userdata, struct mosquitto_opt *options, int 
     return go_mosq_plugin_cleanup(userdata, options, option_count);
 }
 
-/* 事件注册/反注册保持不变 */
+/* Go 暴露的事件回调 */
 int basic_auth_cb_c(int event, void *event_data, void *userdata);
 int acl_check_cb_c (int event, void *event_data, void *userdata);
 
-int register_basic_auth(mosquitto_plugin_id_t *id) {
-    return mosquitto_callback_register(id, MOSQ_EVT_BASIC_AUTH, basic_auth_cb_c, NULL, NULL);
+typedef int (*mosq_event_cb)(int event, void *event_data, void *userdata);
+
+int register_event_callback(mosquitto_plugin_id_t *id, int event, mosq_event_cb cb) {
+    return mosquitto_callback_register(id, event, cb, NULL, NULL);
 }
-int unregister_basic_auth(mosquitto_plugin_id_t *id) {
-    return mosquitto_callback_unregister(id, MOSQ_EVT_BASIC_AUTH, basic_auth_cb_c, NULL);
-}
-int register_acl_check(mosquitto_plugin_id_t *id) {
-    return mosquitto_callback_register(id, MOSQ_EVT_ACL_CHECK, acl_check_cb_c, NULL, NULL);
-}
-int unregister_acl_check(mosquitto_plugin_id_t *id) {
-    return mosquitto_callback_unregister(id, MOSQ_EVT_ACL_CHECK, acl_check_cb_c, NULL);
+
+int unregister_event_callback(mosquitto_plugin_id_t *id, int event, mosq_event_cb cb) {
+    return mosquitto_callback_unregister(id, event, cb, NULL);
 }
 
 /* 避免 Go 直接调可变参 */

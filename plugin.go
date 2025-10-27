@@ -12,10 +12,13 @@ package main
 
 typedef void* pvoid;
 
-int register_basic_auth(mosquitto_plugin_id_t *id);
-int unregister_basic_auth(mosquitto_plugin_id_t *id);
-int register_acl_check(mosquitto_plugin_id_t *id);
-int unregister_acl_check(mosquitto_plugin_id_t *id);
+typedef int (*mosq_event_cb)(int event, void *event_data, void *userdata);
+
+int basic_auth_cb_c(int event, void *event_data, void *userdata);
+int acl_check_cb_c(int event, void *event_data, void *userdata);
+
+int register_event_callback(mosquitto_plugin_id_t *id, int event, mosq_event_cb cb);
+int unregister_event_callback(mosquitto_plugin_id_t *id, int event, mosq_event_cb cb);
 void go_mosq_log(int level, const char* msg);
 */
 import "C"
@@ -204,11 +207,11 @@ func go_mosq_plugin_init(id *C.mosquitto_plugin_id_t, userdata *unsafe.Pointer,
 	mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: connected to PostgreSQL successfully")
 
 	// 注册回调
-	if rc := C.register_basic_auth(pid); rc != C.MOSQ_ERR_SUCCESS {
+	if rc := C.register_event_callback(pid, C.MOSQ_EVT_BASIC_AUTH, C.mosq_event_cb(C.basic_auth_cb_c)); rc != C.MOSQ_ERR_SUCCESS {
 		return rc
 	}
-	if rc := C.register_acl_check(pid); rc != C.MOSQ_ERR_SUCCESS {
-		C.unregister_basic_auth(pid)
+	if rc := C.register_event_callback(pid, C.MOSQ_EVT_ACL_CHECK, C.mosq_event_cb(C.acl_check_cb_c)); rc != C.MOSQ_ERR_SUCCESS {
+		C.unregister_event_callback(pid, C.MOSQ_EVT_BASIC_AUTH, C.mosq_event_cb(C.basic_auth_cb_c))
 		return rc
 	}
 
@@ -222,8 +225,8 @@ func go_mosq_plugin_init(id *C.mosquitto_plugin_id_t, userdata *unsafe.Pointer,
 //
 //export go_mosq_plugin_cleanup
 func go_mosq_plugin_cleanup(userdata unsafe.Pointer, opts *C.struct_mosquitto_opt, optCount C.int) C.int {
-	C.unregister_acl_check(pid)
-	C.unregister_basic_auth(pid)
+	C.unregister_event_callback(pid, C.MOSQ_EVT_ACL_CHECK, C.mosq_event_cb(C.acl_check_cb_c))
+	C.unregister_event_callback(pid, C.MOSQ_EVT_BASIC_AUTH, C.mosq_event_cb(C.basic_auth_cb_c))
 	if pool != nil {
 		pool.Close()
 	}
