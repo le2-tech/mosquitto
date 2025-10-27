@@ -36,5 +36,5 @@ docker-run:
 	  -v $(PWD)/build/mosq_pg_auth.so:/mosquitto/plugins/mosq_pg_auth.so:ro \
 	  eclipse-mosquitto:2
 
-local-run:
+local-run: build
 	mosquitto -c ./mosquitto.conf

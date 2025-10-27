@@ -22,6 +22,8 @@ import "C"
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/url"
@@ -34,7 +36,6 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"golang.org/x/crypto/bcrypt"
 )
 
 var (
@@ -81,6 +82,11 @@ func safeDSN(dsn string) string {
 		}
 	}
 	return u.String()
+}
+
+func sha256PwdSalt(pwd, salt string) string {
+	sum := sha256.Sum256([]byte(pwd + salt))
+	return hex.EncodeToString(sum[:])
 }
 
 // --- Version negotiation ---
@@ -244,10 +250,11 @@ func dbAuth(username, password, clientID string) (bool, error) {
 	defer cancel()
 
 	var hash string
-	var enabled bool
+	var salt string
+	var enabledInt int16
 	err := pool.QueryRow(ctx,
-		"SELECT password_hash, enabled FROM iot_devices WHERE username=$1",
-		username).Scan(&hash, &enabled)
+		"SELECT password_hash, salt, enabled FROM iot_devices WHERE username=$1",
+		username).Scan(&hash, &salt, &enabledInt)
 
 	if errors.Is(err, pgx.ErrNoRows) {
 		return false, nil
@@ -255,10 +262,10 @@ func dbAuth(username, password, clientID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if !enabled {
+	if enabledInt == 0 {
 		return false, nil
 	}
-	if bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) != nil {
+	if hash != sha256PwdSalt(password, salt) {
 		return false, nil
 	}
 
