@@ -34,6 +34,7 @@ import (
 	"runtime/debug"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
@@ -49,6 +50,7 @@ const (
 var (
 	pid         *C.mosquitto_plugin_id_t
 	pool        *pgxpool.Pool
+	poolMu      sync.RWMutex
 	pgDSN       string // postgres://user:pass@host:5432/db?sslmode=verify-full
 	timeout     = time.Duration(defaultTimeoutMS) * time.Millisecond
 	failOpen    bool
@@ -111,6 +113,50 @@ func parseTimeoutMS(v string) (time.Duration, bool) {
 		return 0, false
 	}
 	return time.Duration(n) * time.Millisecond, true
+}
+
+func buildPoolConfig() (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(pgDSN)
+	if err != nil {
+		return nil, err
+	}
+	cfg.MaxConns = 16
+	cfg.MinConns = 2
+	cfg.MaxConnIdleTime = 60 * time.Second
+	cfg.HealthCheckPeriod = 30 * time.Second
+	return cfg, nil
+}
+
+func ensurePool(ctx context.Context) (*pgxpool.Pool, bool, error) {
+	poolMu.RLock()
+	current := pool
+	poolMu.RUnlock()
+	if current != nil {
+		return current, false, nil
+	}
+
+	poolMu.Lock()
+	defer poolMu.Unlock()
+
+	if pool != nil {
+		return pool, false, nil
+	}
+
+	cfg, err := buildPoolConfig()
+	if err != nil {
+		return nil, false, err
+	}
+
+	newPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return nil, false, err
+	}
+	if err := newPool.Ping(ctx); err != nil {
+		newPool.Close()
+		return nil, false, err
+	}
+	pool = newPool
+	return pool, true, nil
 }
 
 func sha256PwdSalt(pwd, salt string) string {
@@ -182,29 +228,18 @@ func go_mosq_plugin_init(id *C.mosquitto_plugin_id_t, userdata *unsafe.Pointer,
 	mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: initializing pg_dsn=%s timeout_ms=%d fail_open=%t enforce_bind=%t",
 		safeDSN(pgDSN), int(timeout/time.Millisecond), failOpen, enforceBind)
 
-	// 初始化 PG 连接池
-	cfg, err := pgxpool.ParseConfig(pgDSN)
-	if err != nil {
+	// 验证 PG 配置；数据库暂不可用时不阻塞插件加载
+	if _, err := buildPoolConfig(); err != nil {
 		mosqLog(C.MOSQ_LOG_ERR, "mosq-pg: invalid pg_dsn (%s): %v", safeDSN(pgDSN), err)
-		return C.MOSQ_ERR_UNKNOWN
-	}
-	cfg.MaxConns = 16
-	cfg.MinConns = 2
-	cfg.MaxConnIdleTime = 60 * time.Second
-	cfg.HealthCheckPeriod = 30 * time.Second
-
-	pool, err = pgxpool.NewWithConfig(context.Background(), cfg)
-	if err != nil {
-		mosqLog(C.MOSQ_LOG_ERR, "mosq-pg: pg pool init failed: %v", err)
 		return C.MOSQ_ERR_UNKNOWN
 	}
 	ctx, cancel := ctxTimeout()
 	defer cancel()
-	if err = pool.Ping(ctx); err != nil {
-		mosqLog(C.MOSQ_LOG_ERR, "mosq-pg: pg ping failed: %v", err)
-		return C.MOSQ_ERR_UNKNOWN
+	if _, created, err := ensurePool(ctx); err != nil {
+		mosqLog(C.MOSQ_LOG_WARNING, "mosq-pg: initial pg connection failed: %v (will retry lazily)", err)
+	} else if created {
+		mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: initial connection to PostgreSQL established")
 	}
-	mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: connected to PostgreSQL successfully")
 
 	// 注册回调
 	if rc := C.register_event_callback(pid, C.MOSQ_EVT_BASIC_AUTH, C.mosq_event_cb(C.basic_auth_cb_c)); rc != C.MOSQ_ERR_SUCCESS {
@@ -222,9 +257,12 @@ func go_mosq_plugin_init(id *C.mosquitto_plugin_id_t, userdata *unsafe.Pointer,
 //export go_mosq_plugin_cleanup
 func go_mosq_plugin_cleanup(userdata unsafe.Pointer, opts *C.struct_mosquitto_opt, optCount C.int) C.int {
 	C.unregister_event_callback(pid, C.MOSQ_EVT_BASIC_AUTH, C.mosq_event_cb(C.basic_auth_cb_c))
+	poolMu.Lock()
 	if pool != nil {
 		pool.Close()
+		pool = nil
 	}
+	poolMu.Unlock()
 	mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: plugin cleaned up")
 	return C.MOSQ_ERR_SUCCESS
 }
@@ -273,10 +311,18 @@ func dbAuth(username, password, clientID string) (bool, error) {
 	ctx, cancel := ctxTimeout()
 	defer cancel()
 
+	p, created, err := ensurePool(ctx)
+	if err != nil {
+		return false, err
+	}
+	if created {
+		mosqLog(C.MOSQ_LOG_INFO, "mosq-pg: connected to PostgreSQL successfully")
+	}
+
 	var hash string
 	var salt string
 	var enabledInt int16
-	err := pool.QueryRow(ctx,
+	err = p.QueryRow(ctx,
 		"SELECT password_hash, salt, enabled FROM iot_devices WHERE username=$1",
 		username).Scan(&hash, &salt, &enabledInt)
 
@@ -295,7 +341,7 @@ func dbAuth(username, password, clientID string) (bool, error) {
 
 	if enforceBind {
 		var ok int
-		err = pool.QueryRow(ctx,
+		err = p.QueryRow(ctx,
 			"SELECT 1 FROM client_bindings WHERE username=$1 AND client_id=$2",
 			username, clientID).Scan(&ok)
 		if errors.Is(err, pgx.ErrNoRows) {
