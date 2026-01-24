@@ -8,18 +8,18 @@ ENV DEBIAN_FRONTEND=noninteractive \
 ARG APP_ENV=prod
 
 RUN set -eux; \
-  if [ "${APP_ENV:-}" = "dev" ]; then \
-  sed -i "s|http://deb.debian.org|http://mirrors.aliyun.com|g" /etc/apt/sources.list.d/debian.sources; \
-  fi
+    if [ "${APP_ENV:-}" = "dev" ]; then \
+    sed -i "s|http://deb.debian.org|http://mirrors.aliyun.com|g" /etc/apt/sources.list.d/debian.sources; \
+    fi
 
 # 构建依赖（使用 Debian 组件提供的 libwebsockets-dev）
 RUN set -eux; \
     apt-get update; \
     apt-get install -y --no-install-recommends \
-        ca-certificates wget gnupg dirmngr pkg-config \
-        build-essential \
-        libcjson-dev libssl-dev uuid-dev \
-        libwebsockets-dev binutils; \
+    ca-certificates wget gnupg dirmngr pkg-config \
+    build-essential \
+    libcjson-dev libssl-dev uuid-dev \
+    libwebsockets-dev binutils; \
     rm -rf /var/lib/apt/lists/*
 
 # 下载 + 校验 Mosquitto 源码（sha256 + GPG）
@@ -30,8 +30,8 @@ RUN set -eux; \
     export GNUPGHOME="$(mktemp -d)"; \
     found=''; \
     for server in hkps://keys.openpgp.org hkp://keyserver.ubuntu.com:80 pgp.mit.edu; do \
-        echo "Fetching GPG key $GPG_KEYS from $server"; \
-        gpg --keyserver "$server" --keyserver-options timeout=10 --recv-keys "$GPG_KEYS" && found=yes && break; \
+    echo "Fetching GPG key $GPG_KEYS from $server"; \
+    gpg --keyserver "$server" --keyserver-options timeout=10 --recv-keys "$GPG_KEYS" && found=yes && break; \
     done; \
     test -z "$found" && echo >&2 "error: failed to fetch GPG key $GPG_KEYS" && exit 1; \
     gpg --batch --verify /tmp/mosq.tar.gz.asc /tmp/mosq.tar.gz; \
@@ -45,32 +45,32 @@ RUN set -eux; \
 RUN set -eux; \
     mkdir -p /out; \
     make -C /build/mosq -j"$(nproc)" \
-        CFLAGS="-Wall -O2" \
-        WITH_ADNS=no \
-        WITH_DOCS=no \
-        WITH_SHARED_LIBRARIES=yes \
-        WITH_SRV=no \
-        WITH_STRIP=yes \
-        WITH_WEBSOCKETS=yes \
-        prefix=/usr; \
+    CFLAGS="-Wall -O2" \
+    WITH_ADNS=no \
+    WITH_DOCS=no \
+    WITH_SHARED_LIBRARIES=yes \
+    WITH_SRV=no \
+    WITH_STRIP=yes \
+    WITH_WEBSOCKETS=yes \
+    prefix=/usr; \
     make -C /build/mosq \
-        WITH_ADNS=no WITH_DOCS=no WITH_SHARED_LIBRARIES=yes WITH_SRV=no WITH_STRIP=yes WITH_WEBSOCKETS=yes \
-        prefix=/usr DESTDIR=/out install; 
-    # 若动态安全插件未随 install 安装，单独安装到 /out
-    # make -C /build/mosq/plugins/dynamic-security -j"$(nproc)"; \
-    # make -C /build/mosq/plugins/dynamic-security prefix=/usr DESTDIR=/out install || \
-    #     install -D -m755 /build/mosq/plugins/dynamic-security/mosquitto_dynamic_security.so /out/usr/lib/mosquitto_dynamic_security.so; \
-    # 准备默认配置以兼容 /mosquitto/config 路径
-    # mkdir -p /out/mosquitto/config; \
-    # if [ -f /out/etc/mosquitto/mosquitto.conf ]; then \
-    #     cp -f /out/etc/mosquitto/mosquitto.conf /out/mosquitto/config/mosquitto.conf; \
-    # elif [ -f /build/mosq/mosquitto.conf ]; then \
-    #     cp -f /build/mosq/mosquitto.conf /out/mosquitto/config/mosquitto.conf; \
-    # fi; \
-    # # 许可证（可选）
-    # mkdir -p /out/usr/share/licenses/mosquitto; \
-    # [ -f /build/mosq/epl-v20 ] && install -m644 /build/mosq/epl-v20 /out/usr/share/licenses/mosquitto/epl-v20 || true; \
-    # [ -f /build/mosq/edl-v10 ] && install -m644 /build/mosq/edl-v10 /out/usr/share/licenses/mosquitto/edl-v10 || true
+    WITH_ADNS=no WITH_DOCS=no WITH_SHARED_LIBRARIES=yes WITH_SRV=no WITH_STRIP=yes WITH_WEBSOCKETS=yes \
+    prefix=/usr DESTDIR=/out install; 
+# 若动态安全插件未随 install 安装，单独安装到 /out
+# make -C /build/mosq/plugins/dynamic-security -j"$(nproc)"; \
+# make -C /build/mosq/plugins/dynamic-security prefix=/usr DESTDIR=/out install || \
+#     install -D -m755 /build/mosq/plugins/dynamic-security/mosquitto_dynamic_security.so /out/usr/lib/mosquitto_dynamic_security.so; \
+# 准备默认配置以兼容 /mosquitto/config 路径
+# mkdir -p /out/mosquitto/config; \
+# if [ -f /out/etc/mosquitto/mosquitto.conf ]; then \
+#     cp -f /out/etc/mosquitto/mosquitto.conf /out/mosquitto/config/mosquitto.conf; \
+# elif [ -f /build/mosq/mosquitto.conf ]; then \
+#     cp -f /build/mosq/mosquitto.conf /out/mosquitto/config/mosquitto.conf; \
+# fi; \
+# # 许可证（可选）
+# mkdir -p /out/usr/share/licenses/mosquitto; \
+# [ -f /build/mosq/epl-v20 ] && install -m644 /build/mosq/epl-v20 /out/usr/share/licenses/mosquitto/epl-v20 || true; \
+# [ -f /build/mosq/edl-v10 ] && install -m644 /build/mosq/edl-v10 /out/usr/share/licenses/mosquitto/edl-v10 || true
 
 
 
@@ -81,8 +81,8 @@ FROM golang:latest AS build-plugin
 RUN set -eux; \
     apt-get update ;\
     apt-get install -y --no-install-recommends \
-      build-essential pkg-config ca-certificates \
-      libmosquitto-dev mosquitto-dev \
+    build-essential pkg-config ca-certificates \
+    libmosquitto-dev mosquitto-dev \
     ; \
     rm -rf /var/lib/apt/lists/*
 
@@ -90,7 +90,7 @@ WORKDIR /src
 COPY go.mod .
 RUN go mod download
 COPY . .
-RUN make build build-queue
+RUN make build-auth build-queue
 
 
 # https://packages.debian.org/search?keywords=mosquitto
@@ -99,10 +99,10 @@ FROM debian:trixie-slim
 RUN set -eux; \
     apt-get update ;\
     apt-get install -y --no-install-recommends \
-      # mosquitto \
-      tree \
-      ca-certificates tzdata \
-      libcjson1 libssl3 libuuid1 libwebsockets19t64 \
+    # mosquitto \
+    tree \
+    ca-certificates tzdata \
+    libcjson1 libssl3 libuuid1 libwebsockets19t64 \
     ; \
     rm -rf /var/lib/apt/lists/*
 

@@ -8,18 +8,18 @@ DOCKER_IMAGE := ghcr.io/le2-tech/mosquitto
 GOFLAGS :=
 CGO_ENABLED := 1
 
-.PHONY: all build build-queue bcryptgen clean docker-build docker-run mod
+.PHONY: all build-auth build-queue bcryptgen clean docker-build docker-run mod
 
-all: build bcryptgen
+all: build-auth bcryptgen
 
 mod:
 	go mod tidy
 
-build-dev: clean mod
+build-auth-dev: mod
 	mkdir -p $(BINARY_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) go build -buildmode=c-shared -gcflags "all=-N -l" -ldflags "" -o $(AUTH_SO) ./authplugin
 
-build: clean mod
+build-auth: mod
 	mkdir -p $(BINARY_DIR)
 	CGO_ENABLED=$(CGO_ENABLED) go build -buildmode=c-shared -trimpath -ldflags="-s -w" -o $(AUTH_SO) ./authplugin
 
