@@ -83,7 +83,7 @@ WITH ins AS (
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
   RETURNING 1
 )
-INSERT INTO mqtt_client_latest_events
+INSERT INTO mqtt_client_sessions
   (client_id, username, last_event_ts, last_event_type, last_connect_ts, last_disconnect_ts,
    last_peer, last_protocol, last_reason_code, extra)
 SELECT $3, $4, $1, $2, $9, $10, $5, $6, $7, $8
@@ -422,7 +422,7 @@ func dbAuth(username, password, clientID string) (bool, string, error) {
 	var salt string
 	var enabledInt int16
 	err = p.QueryRow(ctx,
-		"SELECT password_hash, salt, enabled FROM mqtt_devices WHERE username=$1",
+		"SELECT password_hash, salt, enabled FROM mqtt_accounts WHERE user_name=$1",
 		username).Scan(&hash, &salt, &enabledInt)
 
 	if errors.Is(err, pgx.ErrNoRows) {

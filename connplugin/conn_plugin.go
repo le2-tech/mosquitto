@@ -41,7 +41,7 @@ WITH ins AS (
   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
   RETURNING 1
 )
-INSERT INTO mqtt_client_latest_events
+INSERT INTO mqtt_client_sessions
   (client_id, username, last_event_ts, last_event_type, last_connect_ts, last_disconnect_ts,
    last_peer, last_protocol, last_reason_code, extra)
 SELECT $3, $4, $1, $2, $9, $10, $5, $6, $7, $8
@@ -50,8 +50,8 @@ ON CONFLICT (client_id) DO UPDATE SET
   username = EXCLUDED.username,
   last_event_ts = EXCLUDED.last_event_ts,
   last_event_type = EXCLUDED.last_event_type,
-  last_connect_ts = COALESCE(EXCLUDED.last_connect_ts, mqtt_client_latest_events.last_connect_ts),
-  last_disconnect_ts = COALESCE(EXCLUDED.last_disconnect_ts, mqtt_client_latest_events.last_disconnect_ts),
+  last_connect_ts = COALESCE(EXCLUDED.last_connect_ts, mqtt_client_sessions.last_connect_ts),
+  last_disconnect_ts = COALESCE(EXCLUDED.last_disconnect_ts, mqtt_client_sessions.last_disconnect_ts),
   last_peer = EXCLUDED.last_peer,
   last_protocol = EXCLUDED.last_protocol,
   last_reason_code = EXCLUDED.last_reason_code,

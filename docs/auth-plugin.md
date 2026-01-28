@@ -80,7 +80,7 @@
 ### 4.1 回调入口
 
 - `basic_auth_cb_c` 读取：
-  - `username`
+  - `username`（作为 `mqtt_devices.device_code` 使用）
   - `password`
   - `client_id`（通过 `mosquitto_client_id`）
   - `peer` / `protocol`（通过 `mosquitto_client_*`）
@@ -93,7 +93,7 @@
 3. 查询用户：
    ```sql
    SELECT password_hash, salt, enabled
-   FROM iot_devices
+   FROM mqtt_account
    WHERE username = $1
    ```
    - 无记录：拒绝（`user_not_found`）
@@ -142,17 +142,17 @@
 
 > 注意：仓库中的 `scripts/init_db.sql` 与此处不一致（详见第 8 节）。
 
-### 6.1 iot_devices（认证主表）
+### 6.1 mqtt_devices（认证主表）
 
 必须存在字段（字段类型由代码读取方式决定）：
-- `username`（文本）
+- `device_code`（文本）
 - `password_hash`（文本，`sha256(password + salt)` 的十六进制）
 - `salt`（文本）
 - `enabled`（会被扫描为 `int16`，需支持 0/1）
 
 ### 6.2 client_bindings（可选绑定表）
 
-- `username`
+- `username`（存放 device_code）
 - `client_id`
 
 当 `enforce_bind=true` 时，要求存在对应 `(username, client_id)` 记录。
@@ -201,16 +201,16 @@ CREATE INDEX IF NOT EXISTS mqtt_client_auth_events_ts_idx
 
 - 历史说明宣称支持 **ACL**，但当前代码未注册 ACL 回调。
 - `scripts/init_db.sql` 使用表 `users` / `acls` / `client_bindings`，
-  但当前代码实际查询 **`iot_devices`**。
+  但当前代码实际查询 **`mqtt_devices`**（字段 `device_code`）。
 - 历史说明/脚本描述 **bcrypt**，但 `cmd/bcryptgen` 与插件逻辑使用 **sha256(password + salt)**。
 
 ## 9. 构建与本地运行（示例流程）
 
-1) 准备数据库：可先运行 `./scripts/init_db.sh` 创建数据库/角色（默认 `PGHOST=127.0.0.1`、`PGPORT=5432`、`PGUSER=postgres`、`PGDATABASE=mqtt`、`MQTT_DB_USER=mqtt_auth`、`MQTT_DB_PASS=StrongPass`）。该脚本会创建 `users/acls`，**不包含**当前实现需要的 `iot_devices`，需补充如下表结构：
+1) 准备数据库：可先运行 `./scripts/init_db.sh` 创建数据库/角色（默认 `PGHOST=127.0.0.1`、`PGPORT=5432`、`PGUSER=postgres`、`PGDATABASE=mqtt`、`MQTT_DB_USER=mqtt_auth`、`MQTT_DB_PASS=StrongPass`）。该脚本会创建 `users/acls`，**不包含**当前实现需要的 `mqtt_devices`，需补充如下表结构：
 
 ```sql
-CREATE TABLE IF NOT EXISTS iot_devices (
-  username      TEXT PRIMARY KEY,
+CREATE TABLE IF NOT EXISTS mqtt_devices (
+  device_code   TEXT PRIMARY KEY,
   password_hash TEXT NOT NULL,
   salt          TEXT NOT NULL,
   enabled       SMALLINT NOT NULL DEFAULT 1,
@@ -233,12 +233,12 @@ make bcryptgen
 ./plugins/bcryptgen -salt 'SALT' 'alice-password'
 ```
 
-将输出值写入 `iot_devices.password_hash`。示例：
+将输出值写入 `mqtt_devices.password_hash`。示例：
 
 ```sql
-INSERT INTO iot_devices (username, password_hash, salt, enabled)
+INSERT INTO mqtt_devices (device_code, password_hash, salt, enabled)
 VALUES ('alice', '<hash>', 'SALT', 1)
-ON CONFLICT (username) DO UPDATE
+ON CONFLICT (device_code) DO UPDATE
   SET password_hash = EXCLUDED.password_hash,
       salt = EXCLUDED.salt,
       enabled = EXCLUDED.enabled;
@@ -288,7 +288,7 @@ plugin /mosquitto/plugins/auth-plugin
 ## 11. 安全与运维建议
 
 - 生产环境建议为 Postgres 启用 TLS（`sslmode=verify-full`）并配置 CA。
-- DB 角色授予 `SELECT`（`iot_devices`、`client_bindings`）以及 `INSERT`（`mqtt_client_auth_events`、`mqtt_client_events`、`mqtt_client_latest_events`）。
+- DB 角色授予 `SELECT`（`mqtt_devices`、`client_bindings`）以及 `INSERT`（`mqtt_client_auth_events`、`mqtt_client_events`、`mqtt_client_latest_events`）。
 - 保持 `auth_plugin_deny_special_chars true`，除非明确要关闭。
 - 生产建议 `fail_open=false`，避免 DB 故障导致放行。
 
